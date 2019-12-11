@@ -71,6 +71,7 @@ data_folder_path='D:\AI Data\DatingAI\Data'
 images_folder_path='D:\AI Data\DatingAI\Data\Images'
 chromedriver_path=r'C:\Program Files (x86)\ChromeDriver\chromedriver.exe'
 score_levels=5
+
 account_events={'date format':'%d/%m/%Y',
                 'name-date tuples':[
                         ('re-opened free account','19/07/2019'),
@@ -80,9 +81,14 @@ account_events={'date format':'%d/%m/%Y',
                         ('re-opened free account','02/12/2019'),
                         ('re-opened free account','09/12/2019'),
                         ]}
+
+# warning if no-go's appear in profile; real-time check is always on, to disable just empty lists
 user_no_go_basic_detils=['Married','Divorced','Has kids']
 user_no_go_extended_detils=[', Smokes cigarettes',', Smokes marijuana', # the comma to avoid recgonizing 'smokes marijuana' in 'never smokes marijuana'
                             ', Does drugs']
+#post_no_go_df_check=True # warning for profiles with positive score and no-go's in the entire df, after scraping completes
+post_no_go_df_check=False
+
 
 #%% imports
 import logging
@@ -351,15 +357,18 @@ while 1:
         if identical_skipping==False:
             
             # checking user no-go's
+            no_go_profile=False
             if isinstance(basic_profile_details,str):
                 for no_go in user_no_go_basic_detils:
                     if no_go in basic_profile_details:
                         logger.warning("detected user basic details no-go in profile: '%s'"%(no_go))
+                        no_go_profile=True
             
             if isinstance(extended_profile_details,str):
-                for no_go in user_no_go_basic_detils:
-                    if no_go in basic_profile_details:
+                for no_go in user_no_go_extended_detils:
+                    if no_go in extended_profile_details:
                         logger.warning("detected user extended details no-go in profile: '%s'"%(no_go))
+                        no_go_profile=True
             
             # acquiring score from the user
             nonlegit_score=True
@@ -372,12 +381,16 @@ while 1:
                     score=float(input(text_for_completion))
                 except:
                     logger.error('conversion of input to float failed!')
-                
+                        
                 if score!=None and ((score in score_dict) or score==0):
                     nonlegit_score=False
                 else:
                     logger.error('non-legit score given, repeating')
-                    
+                
+                if no_go_profile and score>0:
+                        no_go_confirmed=input('profile contains no-go but given positive score! continue (or re-score)? y/[n] ')
+                        if no_go_confirmed!='y':
+                            nonlegit_score=True
             
             if score==0:
                 for image_filename in image_filenames:
@@ -508,23 +521,24 @@ plt.savefig(fig_path)
 logger.info("saved personal taste figure to '%s'"%(fig_path))
 
 #%% verifying user no-go's in profiles_df
-num_of_detected_no_gos_profiles=0
-for idx,profile in profiles_df.iterrows():
-    no_go_profile=False
-    if isinstance(profile['basic details'],str):
-        for no_go in user_no_go_basic_detils:
-            if no_go in profile['basic details'] and profile[score_column_name]>0:
-                logger.info("profile %d got score=%d but its basic details contain user no-go ('%s'):\n\t%s"%(
-                        idx,profile[score_column_name],no_go,profile['basic details']))
-                no_go_profile=True
-    
-    if isinstance(profile['extended details'],str):      
-        for no_go in user_no_go_extended_detils:
-            if no_go in profile['extended details'] and profile[score_column_name]>0:
-                logger.info("profile %d got score=%d but its extended details contain user no-go ('%s'):\n\t%s"%(
-                        idx,profile[score_column_name],no_go,profile['extended details']))
-                no_go_profile=True
-    if no_go_profile:
-        num_of_detected_no_gos_profiles+=1
-logger.info("\n\ncompleted user no-go's verification, detected profiles to contain no-go's: %d (%.1f%% of total)"%(
-        num_of_detected_no_gos_profiles,100*num_of_detected_no_gos_profiles/len(profiles_df)))
+if post_no_go_df_check:
+    num_of_detected_no_gos_profiles=0
+    for idx,profile in profiles_df.iterrows():
+        no_go_profile=False
+        if isinstance(profile['basic details'],str):
+            for no_go in user_no_go_basic_detils:
+                if no_go in profile['basic details'] and profile[score_column_name]>0:
+                    logger.info("profile %d got score=%d but its basic details contain user no-go ('%s'):\n\t%s"%(
+                            idx,profile[score_column_name],no_go,profile['basic details']))
+                    no_go_profile=True
+        
+        if isinstance(profile['extended details'],str):      
+            for no_go in user_no_go_extended_detils:
+                if no_go in profile['extended details'] and profile[score_column_name]>0:
+                    logger.info("profile %d got score=%d but its extended details contain user no-go ('%s'):\n\t%s"%(
+                            idx,profile[score_column_name],no_go,profile['extended details']))
+                    no_go_profile=True
+        if no_go_profile:
+            num_of_detected_no_gos_profiles+=1
+    logger.info("\n\ncompleted user no-go's verification, detected profiles to contain no-go's: %d (%.1f%% of total)"%(
+            num_of_detected_no_gos_profiles,100*num_of_detected_no_gos_profiles/len(profiles_df)))
