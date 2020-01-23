@@ -66,11 +66,13 @@ Requirements:
 """
 
 #%% parameters
-
 data_folder_path='D:\AI Data\DatingAI\Data'
 images_folder_path='D:\AI Data\DatingAI\Data\Images'
 chromedriver_path=r'C:\Program Files (x86)\ChromeDriver\chromedriver.exe'
 score_levels=5
+
+#scraping_else_validate_scores_mode=True # scraping and collecting data
+scraping_else_validate_scores=False # instead of scraping, navigating to each scraped profile to re-score - to validate user consistency
 
 account_events={'date format':'%d/%m/%Y',
                 'name-date tuples':[
@@ -80,14 +82,16 @@ account_events={'date format':'%d/%m/%Y',
                         ('re-opened free account','22/11/2019'),
                         ('re-opened free account','02/12/2019'),
                         ('re-opened free account','09/12/2019'),
+                        ('re-opened free account','30/12/2019'),
+                        ('re-opened free account','23/01/2019'),
                         ]}
 
 # warning if no-go's appear in profile; real-time check is always on, to disable just empty lists
 user_no_go_basic_detils=['Married','Divorced','Has kids']
 user_no_go_extended_detils=[', Smokes cigarettes',', Smokes marijuana', # the comma to avoid recgonizing 'smokes marijuana' in 'never smokes marijuana'
                             ', Does drugs']
-#post_no_go_df_check=True # warning for profiles with positive score and no-go's in the entire df, after scraping completes
-post_no_go_df_check=False
+#post_scraping_no_go_df_check=True # warning for profiles with positive score and no-go's in the entire df, after scraping completes
+post_scraping_no_go_df_check=False
 
 
 #%% imports
@@ -209,7 +213,39 @@ def discrete_hist(x):
     ax1.grid(which='major',axis='y')
     return ax1,ax2
 
-#%% opening OK Cupid DoubleTake in a chrome browser by selenium
+#%% initializing data
+profiles_df_path=os.path.join(data_folder_path,'profiles_df.pickle')
+score_column_name='score (levels=%d)'%score_levels
+
+# checking if profiles_df exists to read it or start a new file
+if 'profiles_df' in locals():
+    reading_decision=input('profiles_df already exists in locals(), use it, or ignore and read it from disk? [y]/n ')
+if ('profiles_df' not in locals()) or reading_decision=='n':
+    if os.path.isfile(profiles_df_path):
+        profiles_df=pd.read_pickle(profiles_df_path)
+    else:
+        start_new_profiles_df_decision=input("no profiles_df file exists in %s, start a new profiles_df from scratch or abort? y/[n] '"%(profiles_df_path))
+        if start_new_profiles_df_decision!='y':
+            raise RuntimeError('aborted by user decision')
+
+# checking if the existing profiles_df was built with the same score levels as current score_levels
+existing_columns=profiles_df.columns
+existing_score_column_name=None
+for column in existing_columns:
+    if 'score' in column:
+        existing_score_column_name=column
+        break
+if existing_score_column_name==None:
+    raise RuntimeError("no existing column in profiles_df contains 'score', data is corrupted!")
+try:
+    existing_score_levels=int(re.search(r'[0-9]',existing_score_column_name).group())
+except:
+    raise RuntimeError("%s exists, but could not extract its score levels from the first column (should be named 'score (levels=%%d))'%%score_levels), rename or delete the file and re-execute to build a new profiles_df"%profiles_df_path)
+if existing_score_levels!=score_levels:
+    raise RuntimeError('%s exists with score_levels=%d, current input is score_levels=%d -> adjust score levels OR manually rename or delete the existing file -> re-execute to build a new profiles_df'%(
+            profiles_df_path,existing_score_levels,score_levels))
+
+#%% initializing selenium
 if not os.path.exists(images_folder_path):
     create_folder_decision=input('images folder does not exist in supplied path (%s), create it there automatically now or abort? [y]/n '%images_folder_path)
     if create_folder_decision!='n':
@@ -232,7 +268,7 @@ else:
 
 # opening chromedriver with selenium
 if 'driver' in locals():
-    selenium_decision=input('selenium driver already exists, are you already logged in to OK Cupid and do you want to use it? [y]/n ')
+    selenium_decision=input('selenium driver already exists in locals(), are you already logged in to OK Cupid and do you want to use it? [y]/n ')
     if selenium_decision!='n':
         driver.get('https://www.okcupid.com/doubletake') # this is no error, if 'driver' in locals() this must work fine...
 if ('driver' not in locals()) or ('driver' in locals() and selenium_decision=='n'):
@@ -243,180 +279,162 @@ if ('driver' not in locals()) or ('driver' in locals() and selenium_decision=='n
         logger.info('navigating to DoubleTake to start scoring and scraping!')
     driver.get('https://www.okcupid.com/doubletake')
 
-#%% scraping OK Cupid DoubleTake sequentially (looping)
-profiles_df_path=os.path.join(data_folder_path,'profiles_df.pickle')
-score_column_name='score (levels=%d)'%score_levels
-
-while 1:
-    # static scraping
-    logger.info('starting static scraping')
-    soup=BeautifulSoup(driver.page_source,'lxml')
-    timestamp=pd.Timestamp.now()
-    profile_id=score=name=age=location=match_percents=essay_dict=\
-        basic_profile_details=extended_profile_details=None
-    skipping_decision='n'
-    identical_skipping=False
-    # getting soup and profile id
-    try:
-        soup_card=soup.find('div',class_='cardsummary')
-        profile_URL=soup_card.find('a')['href'] # something like https://www.okcupid.com/profile/5605047242975505858?cf=quickmatch, or https://www.okcupid.com/profile/Dor_La?cf=quickmatch
-        profile_id=re.search(r'(?<=profile/).*?(?=\?)',profile_URL).group()
-
-        if os.path.isfile(profiles_df_path): # the profiles_df already exists
-            profiles_df=pd.read_pickle(profiles_df_path)
-            if profile_id in profiles_df.index:
-                skipping_decision=input('this profile id was already scraped, do you want to skip (and Like/Pass by score already given) or scrape again and append to data? [y]/n ')
-                if skipping_decision!='n': skipping_decision='y' # since the default for anything other than 'n' is 'y'
-    except:
-         logger.error('fatal error in scraping the card, re-execute to continue. exception error:')
-         raise
-    
-    if skipping_decision=='y':
-        score=profiles_df.loc[profile_id][score_column_name] # to be used in Like/Pass
-    else:
-        # scraping header card details (name,age,location,...)
-        try:
-            name=soup_card.find('div',class_='cardsummary-item cardsummary-realname').text
-        except:
-            logger.warning('could not scrape name')
-        try:
-            age=int(soup_card.find('div',class_='cardsummary-item cardsummary-age').text)
-        except:
-            logger.warning('could not scrape age')
-        try:
-            location=soup_card.find('div',class_='cardsummary-item cardsummary-location').text
-        except:
-            logger.info('could not scrape location')
-        try:
-            match_text=soup_card.find('span',class_='cardsummary-match-pct').text
-            match_percents=int(match_text[:match_text.find('%')])
-        except:
-            logger.debug('could not scrape match percents')
-    
-        try: # scraping profile details (orientation, languages,...)
-            soup_profile_details=soup.find('div',class_='quickmatch-profiledetails matchprofile-details')
-            soup_profile_details=soup_profile_details.find_all('div',class_='matchprofile-details-text')
-            basic_profile_details=soup_profile_details[0].text
-            if len(soup_profile_details)>1: extended_profile_details=soup_profile_details[1].text
-        except:
-            logger.debug('could not scrape profile details')
-        try: # scraping all free text boxes ("essay")
-            soup_essay=soup.find('div',class_='qmessays')
-            soup_free_text_boxes=soup_essay.find_all('div',class_='qmessays-essay')
-            essay_dict={}
-            for soup_box in soup_free_text_boxes:
-                box_title=soup_box.find('h2').text
-                box_text=str(soup_box.find('p'))
-                essay_dict.update({box_title:box_text})
-        except:
-            logger.debug('could not scrape self summary')
-        try: # scraping images!
-            soup_carousel=soup.find('div',class_='qmcard-carousel-viewport-inner')
-            soup_images=soup_carousel.find_all('img')
-            image_urls=[soup_image['src'] for soup_image in soup_images]
-            image_filenames=[]
-            identical_images_number=0
-            for image_url in image_urls:
-                slash_indices=find_all(image_url,'/')
-                image_url_from_last_slash=image_url[slash_indices[-1]+1:]
-                image_name=image_url_from_last_slash[:image_url_from_last_slash.find('.')]
-                image_extension=image_url_from_last_slash[image_url_from_last_slash.find('.')+1:image_url_from_last_slash.find('?')]
-                image_filename=image_name+'.'+image_extension
-                if os.path.isfile(os.path.join(images_folder_path,image_filename)):
-                    urllib.request.urlretrieve(image_url,os.path.join(images_folder_path,'temp_image_file'))
-                    file_path_a=os.path.join(images_folder_path,image_filename)
-                    file_path_b=os.path.join(images_folder_path,'temp_image_file')
-                    if filecmp.cmp(file_path_a,file_path_b,shallow=False):
-                        logger.info('%s image file already exists and identical in content to the downloaded image file with the same name'%image_filename)
-                        identical_images_number+=1
-                    else:
-                        logger.warning('%s image file already exists but not identical in content to the downloaded image file  with the same name, renaming to %s'%(
-                                image_filename,image_name+'_2'))
-                        image_name=image_name+'_2'
-                        image_filename=image_name+'.'+image_extension
-                        urllib.request.urlretrieve(image_url,os.path.join(images_folder_path,image_filename))
-                else:
-                    urllib.request.urlretrieve(image_url,os.path.join(images_folder_path,image_filename))
-                image_filenames.append(image_filename)
-        except:
-            logger.warning('could not scrape images')
-        logger.info('profile successfully scraped')
+#%% scraping OKCupid DoubleTake sequentially (looping)
+if scraping_else_validate_scores:
+    while 1:
+        # static scraping
+        logger.info('starting static scraping')
+        soup=BeautifulSoup(driver.page_source,'lxml')
+        timestamp=pd.Timestamp.now()
+        profile_id=score=name=age=location=match_percents=essay_dict=\
+            basic_profile_details=extended_profile_details=None
+        skipping_decision='n'
+        identical_skipping=False
         
-        if identical_images_number==len(image_urls):
-            for idx,profile in profiles_df.iterrows():
-                if (profile['age']==age and profile['location']==location and \
-                    profile['essay dict']==essay_dict and \
-                    profile['basic details']==basic_profile_details and \
-                    profile['extended details']==extended_profile_details and \
-                    profile['image filenames']==image_filenames):
-                        logger.warning('found a profile with identical details as those scraped now -> skipping profile (Like/Pass by the score already given)!')
-                        score=profile[score_column_name]
-                        identical_skipping=True
-                        break
+        # getting soup and profile id
+        try:
+            soup_card=soup.find('div',class_='cardsummary')
+            profile_URL=soup_card.find('a')['href'] # something like https://www.okcupid.com/profile/5605047242975505858?cf=quickmatch, or https://www.okcupid.com/profile/Dor_La?cf=quickmatch
+            profile_id=re.search(r'(?<=profile/).*?(?=\?)',profile_URL).group()
+    
+            if os.path.isfile(profiles_df_path): # the profiles_df already exists
+                profiles_df=pd.read_pickle(profiles_df_path)
+                if profile_id in profiles_df.index:
+                    skipping_decision=input('this profile id was already scraped, do you want to skip (and Like/Pass by score already given) or scrape again and append to data? [y]/n ')
+                    if skipping_decision!='n': skipping_decision='y' # since the default for anything other than 'n' is 'y'
+        except:
+             logger.error('fatal error in scraping the card, re-execute to continue. exception error:')
+             raise
+        
+        if skipping_decision=='y':
+            score=profiles_df.loc[profile_id][score_column_name] # to be used in Like/Pass
+        else:
+            # scraping header card details (name,age,location,...)
+            try:
+                name=soup_card.find('div',class_='cardsummary-item cardsummary-realname').text
+            except:
+                logger.warning('could not scrape name')
+            try:
+                age=int(soup_card.find('div',class_='cardsummary-item cardsummary-age').text)
+            except:
+                logger.warning('could not scrape age')
+            try:
+                location=soup_card.find('div',class_='cardsummary-item cardsummary-location').text
+            except:
+                logger.info('could not scrape location')
+            try:
+                match_text=soup_card.find('span',class_='cardsummary-match-pct').text
+                match_percents=int(match_text[:match_text.find('%')])
+            except:
+                logger.debug('could not scrape match percents')
+        
+            try: # scraping profile details (orientation, languages,...)
+                soup_profile_details=soup.find('div',class_='quickmatch-profiledetails matchprofile-details')
+                soup_profile_details=soup_profile_details.find_all('div',class_='matchprofile-details-text')
+                basic_profile_details=soup_profile_details[0].text
+                if len(soup_profile_details)>1: extended_profile_details=soup_profile_details[1].text
+            except:
+                logger.debug('could not scrape profile details')
+            try: # scraping all free text boxes ("essay")
+                soup_essay=soup.find('div',class_='qmessays')
+                soup_free_text_boxes=soup_essay.find_all('div',class_='qmessays-essay')
+                essay_dict={}
+                for soup_box in soup_free_text_boxes:
+                    box_title=soup_box.find('h2').text
+                    box_text=str(soup_box.find('p'))
+                    essay_dict.update({box_title:box_text})
+            except:
+                logger.debug('could not scrape self summary')
+            try: # scraping images!
+                soup_carousel=soup.find('div',class_='qmcard-carousel-viewport-inner')
+                soup_images=soup_carousel.find_all('img')
+                image_urls=[soup_image['src'] for soup_image in soup_images]
+                image_filenames=[]
+                identical_images_number=0
+                for image_url in image_urls:
+                    slash_indices=find_all(image_url,'/')
+                    image_url_from_last_slash=image_url[slash_indices[-1]+1:]
+                    image_name=image_url_from_last_slash[:image_url_from_last_slash.find('.')]
+                    image_extension=image_url_from_last_slash[image_url_from_last_slash.find('.')+1:image_url_from_last_slash.find('?')]
+                    image_filename=image_name+'.'+image_extension
+                    if os.path.isfile(os.path.join(images_folder_path,image_filename)):
+                        urllib.request.urlretrieve(image_url,os.path.join(images_folder_path,'temp_image_file'))
+                        file_path_a=os.path.join(images_folder_path,image_filename)
+                        file_path_b=os.path.join(images_folder_path,'temp_image_file')
+                        if filecmp.cmp(file_path_a,file_path_b,shallow=False):
+                            logger.info('%s image file already exists and identical in content to the downloaded image file with the same name'%image_filename)
+                            identical_images_number+=1
+                        else:
+                            logger.warning('%s image file already exists but not identical in content to the downloaded image file  with the same name, renaming to %s'%(
+                                    image_filename,image_name+'_2'))
+                            image_name=image_name+'_2'
+                            image_filename=image_name+'.'+image_extension
+                            urllib.request.urlretrieve(image_url,os.path.join(images_folder_path,image_filename))
+                    else:
+                        urllib.request.urlretrieve(image_url,os.path.join(images_folder_path,image_filename))
+                    image_filenames.append(image_filename)
+            except:
+                logger.warning('could not scrape images')
+            logger.info('profile successfully scraped')
+            
+            if identical_images_number==len(image_urls):
+                for idx,profile in profiles_df.iterrows():
+                    if (profile['age']==age and profile['location']==location and \
+                        profile['essay dict']==essay_dict and \
+                        profile['basic details']==basic_profile_details and \
+                        profile['extended details']==extended_profile_details and \
+                        profile['image filenames']==image_filenames):
+                            logger.warning('found a profile with identical details as those scraped now -> skipping profile (Like/Pass by the score already given)!')
+                            score=profile[score_column_name]
+                            identical_skipping=True
+                            break
+                    
+            if identical_skipping==False:
+                # checking user no-go's
+                no_go_profile=False
+                if isinstance(basic_profile_details,str):
+                    for no_go in user_no_go_basic_detils:
+                        if no_go in basic_profile_details:
+                            logger.warning("detected user basic details no-go in profile: '%s'"%(no_go))
+                            no_go_profile=True
                 
-        if identical_skipping==False:
-            
-            # checking user no-go's
-            no_go_profile=False
-            if isinstance(basic_profile_details,str):
-                for no_go in user_no_go_basic_detils:
-                    if no_go in basic_profile_details:
-                        logger.warning("detected user basic details no-go in profile: '%s'"%(no_go))
-                        no_go_profile=True
-            
-            if isinstance(extended_profile_details,str):
-                for no_go in user_no_go_extended_detils:
-                    if no_go in extended_profile_details:
-                        logger.warning("detected user extended details no-go in profile: '%s'"%(no_go))
-                        no_go_profile=True
-            
-            # acquiring score from the user
-            nonlegit_score=True
-            while nonlegit_score:
+                if isinstance(extended_profile_details,str):
+                    for no_go in user_no_go_extended_detils:
+                        if no_go in extended_profile_details:
+                            logger.warning("detected user extended details no-go in profile: '%s'"%(no_go))
+                            no_go_profile=True
+                
+                # acquiring score from the user
                 if name==None:
                     text_for_completion='enter your score for profile by %s or enter 0 to break: '%(score_dict)
                 else:
                     text_for_completion='enter your score for %s by %s or enter 0 to break: '%(name,score_dict)
-                try:
-                    score=float(input(text_for_completion))
-                except:
-                    logger.error('conversion of input to float failed!')
-                        
-                if score!=None and ((score in score_dict) or score==0):
-                    nonlegit_score=False
-                else:
-                    logger.error('non-legit score given, repeating')
+                nonlegit_score=True
+                while nonlegit_score:
+                    try:
+                        score=float(input(text_for_completion))
+                    except:
+                        logger.error('conversion of input to float failed!')
+                            
+                    if score!=None and ((score in score_dict) or score==0):
+                        nonlegit_score=False
+                    else:
+                        logger.error('non-legit score given, repeating')
+                    
+                    if (not nonlegit_score) and no_go_profile and score>0:
+                            no_go_confirmed=input('profile contains no-go but given positive score! continue (or re-score)? y/[n] ')
+                            if no_go_confirmed!='y':
+                                nonlegit_score=True
                 
-                if no_go_profile and score>0:
-                        no_go_confirmed=input('profile contains no-go but given positive score! continue (or re-score)? y/[n] ')
-                        if no_go_confirmed!='y':
-                            nonlegit_score=True
-            
-            if score==0:
-                for image_filename in image_filenames:
-                    os.remove(os.path.join(images_folder_path,image_filename))
-                logger.info('user gave score=0 -> deleted last downloaded images, breaking')
-                break
-            # saving results
-            if ('profiles_df' in locals()) or os.path.isfile(profiles_df_path):
-                if 'profiles_df' not in locals(): profiles_df=pd.read_pickle(profiles_df_path)
-                # checking if the existing profiles_df was built with the same score levels as current score_levels
-                existing_columns=profiles_df.columns
-                existing_score_column_name=None
-                for column in existing_columns:
-                    if 'score' in column:
-                        existing_score_column_name=column
-                        break
-                if existing_score_column_name==None:
-                    raise RuntimeError("no existing column in profiles_df contains 'score', data is corrupted!")
-                try:
-                    existing_score_levels=int(re.search(r'[0-9]',existing_score_column_name).group())
-                except:
-                    raise RuntimeError("%s exists, but could not extract its score levels from the first column (should be named 'score (levels=%%d))'%%score_levels), rename or delete the file and re-execute to build a new profiles_df"%profiles_df_path)
-                if existing_score_levels!=score_levels:
-                    raise RuntimeError('%s exists with score_levels=%d, current input is score_levels=%d -> adjust score levels OR manually rename or delete the existing file -> re-execute to build a new profiles_df'%(
-                            profiles_df_path,existing_score_levels,score_levels))
-                else:
+                if score==0:
+                    for image_filename in image_filenames:
+                        os.remove(os.path.join(images_folder_path,image_filename))
+                    logger.info('user gave score=0 -> deleted last downloaded images, breaking')
+                    break
+                
+                
+                # saving results
+                if 'profiles_df' in locals():
                     current_df=pd.DataFrame.from_dict({len(profiles_df):{
                             'profile id':profile_id,
                             score_column_name:score,
@@ -431,11 +449,7 @@ while 1:
                             'timestamp':timestamp}},
                         orient='index')
                     profiles_df=pd.concat([profiles_df,current_df])
-            else: # no profiles_df already exists
-               building_decision=input('%s does not exist, build a new file? [y]/n '%(profiles_df_path))
-               if building_decision=='n':
-                   raise RuntimeError('aborted according to user decision')
-               else:
+                else:
                    profiles_df=pd.DataFrame.from_dict({0:{
                             'profile id':profile_id,
                             score_column_name:score,
@@ -449,24 +463,129 @@ while 1:
                             'image filenames':image_filenames,
                             'timestamp':timestamp}},
                         orient='index')
-            # saving profiles_df
-            profiles_df.to_pickle(profiles_df_path)
-            logger.info('%s successfully updated'%profiles_df_path)
-    
-    # Like/Pass the profile according to given user score to pass decision to OK Cupid, and continue scraping
-    html=driver.find_element_by_tag_name('html')
-    if score>0:
-        msg='score <%d> was given -> Liked (NUMPAD2 hit). %d profiles scraped!'%(score,len(profiles_df))
-#        driver.find_element_by_xpath('//*[@id="quickmatch-wrapper"]/div/div/span/div/div[2]/div/div[2]/span/div/div/div/div[1]/div[2]/button[2]').click()
-        html.send_keys(Keys.NUMPAD2)
-    else:
-        msg='score <%d> was given -> Passed (NUMPAD1 hit). %d profiles scraped!'%(score,len(profiles_df))  
-#        driver.find_element_by_xpath('//*[@id="quickmatch-wrapper"]/div/div/span/div/div[2]/div/div[2]/span/div/div/div/div[1]/div[2]/button[1]').click()
-        html.send_keys(Keys.NUMPAD1)
-    
-    logger.info(msg)
+                
+                # saving profiles_df
+                profiles_df.to_pickle(profiles_df_path)
+                logger.info("'%s' successfully updated"%profiles_df_path)
+        
+        # Like/Pass the profile according to given user score to pass decision to OK Cupid, and continue scraping
+        html=driver.find_element_by_tag_name('html')
+        if score>0:
+            msg='score <%d> was given -> Liked (NUMPAD2 hit). %d profiles scraped!'%(score,len(profiles_df))
+    #        driver.find_element_by_xpath('//*[@id="quickmatch-wrapper"]/div/div/span/div/div[2]/div/div[2]/span/div/div/div/div[1]/div[2]/button[2]').click()
+            html.send_keys(Keys.NUMPAD2)
+        else:
+            msg='score <%d> was given -> Passed (NUMPAD1 hit). %d profiles scraped!'%(score,len(profiles_df))  
+    #        driver.find_element_by_xpath('//*[@id="quickmatch-wrapper"]/div/div/span/div/div[2]/div/div[2]/span/div/div/div/div[1]/div[2]/button[1]').click()
+            html.send_keys(Keys.NUMPAD1)
+        
+        logger.info(msg)
 
-# exporting to excel for easy user review
+#%% validating scores
+if not scraping_else_validate_scores:
+    # initializing
+    highest_re_score_col_num=-1
+    for col in profiles_df.columns: # searching for columns formatted as 're-score_%d'
+        if 're-score' in col and col.find(' ')==-1:
+            re_score_col_num=int(col[9:])
+            highest_re_score_col_num=max(highest_re_score_col_num,re_score_col_num)
+    
+    if highest_re_score_col_num==-1:
+        re_score_col='re-score_0'
+        re_score_timestamp_col='re-score_0 timestamp'
+        profiles_df[re_score_col]=None
+        profiles_df[re_score_timestamp_col]=None
+        i_re_score=len(profiles_df)
+    else:
+        re_score_col='re-score_%d'%(highest_re_score_col_num)
+        re_score_timestamp_col='re-score_%d timestamp'%(highest_re_score_col_num)
+        highest_re_score_col_nulls_num=profiles_df[re_score_timestamp_col].isnull().sum()
+        if highest_re_score_col_nulls_num==0:
+            re_score_col='re-score_%d'%(highest_re_score_col_num+1)
+            re_score_timestamp_col='re-score_%d timestamp'%(highest_re_score_col_num+1)
+            profiles_df[re_score_col]=None
+            profiles_df[re_score_timestamp_col]=None
+            i_re_score=len(profiles_df)
+        else:
+            i_re_score=highest_re_score_col_nulls_num-1
+    
+    # looping
+    while 1:
+        profile_row=profiles_df.iloc[i_re_score]
+        
+        profile_id=profile_row['profile id']
+        driver.get('https://www.okcupid.com/profile/%s'%(profile_id))
+        soup=BeautifulSoup(driver.page_source,'lxml')
+        
+        basic_profile_details=profile_row['basic details']
+        extended_profile_details=profile_row['extended details']
+        # checking user no-go's
+        no_go_profile=False
+        if isinstance(basic_profile_details,str):
+            for no_go in user_no_go_basic_detils:
+                if no_go in basic_profile_details:
+                    logger.warning("detected user basic details no-go in profile: '%s'"%(no_go))
+                    no_go_profile=True
+        
+        if isinstance(extended_profile_details,str):
+            for no_go in user_no_go_extended_detils:
+                if no_go in extended_profile_details:
+                    logger.warning("detected user extended details no-go in profile: '%s'"%(no_go))
+                    no_go_profile=True
+        
+        name=profile_row['name']
+        if name==None:
+            text_for_completion='<validating i_row=%d> enter your score for profile by %s or enter 0 to skip/break: '%(i_re_score,score_dict)
+        else:
+            text_for_completion='<validating i_row=%d> enter your score for %s by %s or enter 0 to skip/break: '%(i_re_score,name,score_dict)
+        score=None
+        nonlegit_score=True
+        while nonlegit_score:
+            try:
+                score=float(input(text_for_completion))
+            except:
+                logger.error('conversion of input to float failed!')
+                    
+            if score!=None and ((score in score_dict) or score==0):
+                nonlegit_score=False
+            else:
+                logger.error('non-legit score given, repeating')
+                
+            if (not nonlegit_score) and no_go_profile and score>0:
+                no_go_confirmed=input('profile contains no-go but given positive score! continue (or re-score)? y/[n] ')
+                if no_go_confirmed!='y':
+                    nonlegit_score=True
+        
+        if score==0:
+            break_skip_decision=input('[skip]/break? ')
+            if break_skip_decision=='break':
+                logger.info('breaking')
+                break
+            else:
+                profiles_df[re_score_timestamp_col].iat[i_re_score]=pd.Timestamp.now()
+                # advancing + continue
+                i_re_score-=1
+                if i_re_score==0:
+                    logger.info('reached row 0 -> breaking, re-execute to auto-create a new re-score coloumn in df')
+                    break
+                continue
+        else:
+            logger.info("profile re-scored with <%d>, original score: <%d>"%(score,profile_row[score_column_name]))
+        
+        # saving re-score
+        profiles_df[re_score_col].iat[i_re_score]=score
+        profiles_df[re_score_timestamp_col].iat[i_re_score]=pd.Timestamp.now()
+        
+        # saving df
+        profiles_df.to_pickle(profiles_df_path)
+        logger.info("'%s' successfully updated"%profiles_df_path)
+        
+        # advancing
+        i_re_score-=1
+        if i_re_score==0:
+            logger.info('reached row 0 -> breaking, re-execute to auto-create a new re-score coloumn in df')
+            break
+#%% exporting to excel for easy user review
 profiles_excel_path=os.path.join(data_folder_path,'profiles_df.xlsx')
 profiles_df.to_excel(profiles_excel_path)
 logger.info("exported all scraped profiles data for easy user review to '%s'"%(profiles_excel_path))
@@ -521,7 +640,7 @@ plt.savefig(fig_path)
 logger.info("saved personal taste figure to '%s'"%(fig_path))
 
 #%% verifying user no-go's in profiles_df
-if post_no_go_df_check:
+if post_scraping_no_go_df_check:
     num_of_detected_no_gos_profiles=0
     for idx,profile in profiles_df.iterrows():
         no_go_profile=False
