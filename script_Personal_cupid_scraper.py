@@ -585,6 +585,13 @@ if not scraping_else_validate_scores:
         if i_re_score==0:
             logger.info('reached row 0 -> breaking, re-execute to auto-create a new re-score coloumn in df')
             break
+        
+# consistency analysis
+score_diff=profiles_df[score_column_name]-profiles_df[re_score_col]
+score_diff.dropna(inplace=True)
+score_diff_MSE=(score_diff**2).mean()
+logger.info("sqrt of MSE(original score,'%s'): %.1f"%(re_score_col,score_diff_MSE**0.5))
+
 #%% exporting to excel for easy user review
 profiles_excel_path=os.path.join(data_folder_path,'profiles_df.xlsx')
 profiles_df.to_excel(profiles_excel_path)
