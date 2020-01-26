@@ -5,9 +5,9 @@
 * Feel free to use - for personal use!
 * Use at your own risk ;-)
 
-This script is a Personal Cupid Scraper: opens a Chrome browser 
-    (selenium-driven) for a user to login into his/her personal OK Cupid 
-    account, scrapes all data (textual+images) from the profiles 
+This script is a Personal Cupid Scraper: it opens a Chrome browser 
+    (selenium-driven) for a user to login into own personal OKCupid 
+    account, scrapes all data (all attributes, images & text) from the profiles 
     suggested in DoubleTakem, then for each profile it asks the user 
     to give a score and accordingly likes/passes the profile and 
     advances to the next profile.
@@ -25,7 +25,7 @@ Scoring system:
     
     For example, score_levels=1 creates a score dictionary of 
     {-1: '-', 1: '+'}, only binary Like/Pass, which is too simple and a waste 
-    of details in my opinion, since a user can usually be more specific about 
+    of information in my opinion, since a user can usually be more specific about 
     the strength of Like/Pass.
     
     Therefore the default value I chose is score_levels=3, creating a score 
@@ -41,7 +41,7 @@ Scoring system:
 Results structure - profiles_df pandas DataFrame:
     * columns: ['profile id',score_column_name,'name','age','location','OKCupid match %',
                 'essay dict','basic details','extended details',
-                'image filenames','timestamp']
+                'image filenames','scraped time']
     * 'profile id', a unique OK Cupid identifier that links to the 
         profile URL: https://www.okcupid.com/profile/profile_id, for example 
         profile_id=2636426633407507712 or profile_id=yafchuk.
@@ -66,13 +66,16 @@ Requirements:
 """
 
 #%% parameters
-data_folder_path='D:\AI Data\DatingAI\Data'
+data_folder_path='D:\My Documents\Dropbox\Python\DatingAI personal data'
 images_folder_path='D:\AI Data\DatingAI\Data\Images'
 chromedriver_path=r'C:\Program Files (x86)\ChromeDriver\chromedriver.exe'
 score_levels=5
 
-#scraping_else_validate_scores_mode=True # scraping and collecting data
-scraping_else_validate_scores=False # instead of scraping, navigating to each scraped profile to re-score - to validate user consistency
+#script_mode='scraping' # scraping and collecting new data
+#script_mode='validating scores' # navigating to each scraped profile to re-score - to validate and measure user scoring consistency
+script_mode='auto-pilot by user scores' # auto-liking all scraped profiles by user scores given (>=min_score_to_auto_like)
+min_score_to_auto_like=4
+auto_like_time_col='auto-like time on 23/01 profile'
 
 account_events={'date format':'%d/%m/%Y',
                 'name-date tuples':[
@@ -114,6 +117,11 @@ from selenium.webdriver.common.keys import Keys
 
 from bs4 import BeautifulSoup
 import urllib.request
+
+from selenium.webdriver.support.ui import WebDriverWait
+from selenium.webdriver.support import expected_conditions as EC
+from selenium.webdriver.common.by import By
+from selenium.common.exceptions import TimeoutException
 
 #%% definitions
 def create_selenium_chromedriver(chromedriver_path,mode='normal',
@@ -280,7 +288,7 @@ if ('driver' not in locals()) or ('driver' in locals() and selenium_decision=='n
     driver.get('https://www.okcupid.com/doubletake')
 
 #%% scraping OKCupid DoubleTake sequentially (looping)
-if scraping_else_validate_scores:
+if script_mode=='scraping':
     while 1:
         # static scraping
         logger.info('starting static scraping')
@@ -446,7 +454,7 @@ if scraping_else_validate_scores:
                             'basic details':basic_profile_details,
                             'extended details':extended_profile_details,
                             'image filenames':image_filenames,
-                            'timestamp':timestamp}},
+                            'scraped time':timestamp}},
                         orient='index')
                     profiles_df=pd.concat([profiles_df,current_df])
                 else:
@@ -461,7 +469,7 @@ if scraping_else_validate_scores:
                             'basic details':basic_profile_details,
                             'extended details':extended_profile_details,
                             'image filenames':image_filenames,
-                            'timestamp':timestamp}},
+                            'scraped time':timestamp}},
                         orient='index')
                 
                 # saving profiles_df
@@ -482,7 +490,7 @@ if scraping_else_validate_scores:
         logger.info(msg)
 
 #%% validating scores
-if not scraping_else_validate_scores:
+if script_mode=='validating scores':
     # initializing
     highest_re_score_col_num=-1
     for col in profiles_df.columns: # searching for columns formatted as 're-score_%d'
@@ -492,26 +500,26 @@ if not scraping_else_validate_scores:
     
     if highest_re_score_col_num==-1:
         re_score_col='re-score_0'
-        re_score_timestamp_col='re-score_0 timestamp'
+        re_score_time_col='re-score_0 time'
         profiles_df[re_score_col]=None
-        profiles_df[re_score_timestamp_col]=None
-        i_re_score=len(profiles_df)
+        profiles_df[re_score_time_col]=None
     else:
         re_score_col='re-score_%d'%(highest_re_score_col_num)
-        re_score_timestamp_col='re-score_%d timestamp'%(highest_re_score_col_num)
-        highest_re_score_col_nulls_num=profiles_df[re_score_timestamp_col].isnull().sum()
+        re_score_time_col='re-score_%d time'%(highest_re_score_col_num)
+        highest_re_score_col_nulls_num=profiles_df[re_score_time_col].isnull().sum()
         if highest_re_score_col_nulls_num==0:
             re_score_col='re-score_%d'%(highest_re_score_col_num+1)
-            re_score_timestamp_col='re-score_%d timestamp'%(highest_re_score_col_num+1)
+            re_score_time_col='re-score_%d time'%(highest_re_score_col_num+1)
             profiles_df[re_score_col]=None
-            profiles_df[re_score_timestamp_col]=None
-            i_re_score=len(profiles_df)
-        else:
-            i_re_score=highest_re_score_col_nulls_num-1
-    
+            profiles_df[re_score_time_col]=None
+
+    i_re_score=len(profiles_df)-1
     # looping
-    while 1:
+    while i_re_score>0:
         profile_row=profiles_df.iloc[i_re_score]
+        if not profile_row[re_score_time_col]==None:
+            i_re_score-=1
+            continue
         
         profile_id=profile_row['profile id']
         driver.get('https://www.okcupid.com/profile/%s'%(profile_id))
@@ -557,24 +565,23 @@ if not scraping_else_validate_scores:
                     nonlegit_score=True
         
         if score==0:
-            break_skip_decision=input('[skip]/break? ')
+            break_skip_decision=input('[profile not existing]/skip/break? ')
             if break_skip_decision=='break':
                 logger.info('breaking')
                 break
             else:
-                profiles_df[re_score_timestamp_col].iat[i_re_score]=pd.Timestamp.now()
+                profiles_df[re_score_time_col].iat[i_re_score]=pd.Timestamp.now()
+                if break_skip_decision!='skip':
+                    profiles_df[re_score_col].iat[i_re_score]='profile not found'
                 # advancing + continue
                 i_re_score-=1
-                if i_re_score==0:
-                    logger.info('reached row 0 -> breaking, re-execute to auto-create a new re-score coloumn in df')
-                    break
                 continue
         else:
             logger.info("profile re-scored with <%d>, original score: <%d>"%(score,profile_row[score_column_name]))
         
         # saving re-score
         profiles_df[re_score_col].iat[i_re_score]=score
-        profiles_df[re_score_timestamp_col].iat[i_re_score]=pd.Timestamp.now()
+        profiles_df[re_score_time_col].iat[i_re_score]=pd.Timestamp.now()
         
         # saving df
         profiles_df.to_pickle(profiles_df_path)
@@ -582,15 +589,82 @@ if not scraping_else_validate_scores:
         
         # advancing
         i_re_score-=1
-        if i_re_score==0:
-            logger.info('reached row 0 -> breaking, re-execute to auto-create a new re-score coloumn in df')
-            break
-        
-# consistency analysis
-score_diff=profiles_df[score_column_name]-profiles_df[re_score_col]
-score_diff.dropna(inplace=True)
-score_diff_MSE=(score_diff**2).mean()
-logger.info("sqrt of MSE(original score,'%s'): %.1f"%(re_score_col,score_diff_MSE**0.5))
+
+    if i_re_score==0:
+        logger.info('reached row 0 -> re-execute to restart re-scoring on a new auto-created re-score coloumn in df')
+            
+    # user scoring consistency analysis
+    score_diff=profiles_df[score_column_name]-profiles_df[re_score_col]
+    score_diff.dropna(inplace=True)
+    score_diff_MSE=(score_diff**2).mean()
+    logger.warning("error(original score,'%s') contains %d values, sqrt(MSE): %.1f"%(re_score_col,len(score_diff),score_diff_MSE**0.5))
+
+#%% auto-pilot by user scores
+max_failed_attempts=3
+page_loading_timeout=5
+# end of inputs ---------------------------------------------------------------
+
+if script_mode=='auto-pilot by user scores':
+    if auto_like_time_col not in profiles_df.columns:
+        profiles_df[auto_like_time_col]=None
+    
+    failed_attempts=0
+    i_row=len(profiles_df)-1
+    # looping
+    while i_row>0:
+        profile_row=profiles_df.iloc[i_row]
+        score=profile_row[score_column_name]
+        if score>=min_score_to_auto_like and profile_row[auto_like_time_col]==None:
+            profiles_df[auto_like_time_col].iat[i_row]=pd.Timestamp.now()
+            profiles_df.to_pickle(profiles_df_path)
+            logger.info("'%s' successfully updated"%profiles_df_path)
+            
+            profile_id=profile_row['profile id']
+            URL='https://www.okcupid.com/profile/%s'%(profile_id)
+            logger.info("navigating to '%s'"%(URL))
+            driver.get(URL)
+            try:
+                driver.find_element_by_class_name('blank-state') # if this exists - the profile doens't exist
+                profiles_df[auto_like_time_col].iat[i_row]='profile not found'
+                logger.info("profile '%s' (row %d) not found -> saved, continue"%(profile_id,i_row))
+                profiles_df.to_pickle(profiles_df_path)
+                logger.info("'%s' successfully updated"%profiles_df_path)
+                i_row-=1
+                continue
+            except:
+                pass
+            
+            try:
+                # waiting by xpath since it's also the button for 'message' (if profile already liked)
+                WebDriverWait(driver,page_loading_timeout).until(
+                    EC.presence_of_element_located((By.XPATH,'/html/body/main/div/div/div[2]/div/div/div[3]/span/div/button[2]')))
+                button=driver.find_element_by_xpath('/html/body/main/div/div/div[2]/div/div/div[3]/span/div/button[2]')
+                try:
+                    driver.find_element_by_class_name('formatted-countdown') # if this exists - out of daily likes
+                    logger.info("out of daily likes -> break")
+                    break
+                except:
+                    pass
+                
+#                button=driver.find_element_by_id('like-button')
+                button.click()
+                
+                name=profile_row['name']
+                if name!=None:
+                    logger.info("%s (row %d) auto-liked (based on given score <%d>)"%(name,i_row,score))
+                else:
+                    logger.info("profile '%s' (row %d) auto-liked (based on given score <%d>)"%(profile_id,i_row,score))
+                failed_attempts=0
+                profiles_df.to_pickle(profiles_df_path)
+                logger.info("'%s' successfully updated"%profiles_df_path)
+            except:
+                failed_attempts+=1
+                if failed_attempts==max_failed_attempts:
+                    logger.error("reached max_failed_attempts (%d) -> break"%(max_failed_attempts))
+                    break
+        i_row-=1
+    if i_row==0:
+        logger.warning('reached row 0 -> in order to continue auto-liking, set a new auto_like_time_col')
 
 #%% exporting to excel for easy user review
 profiles_excel_path=os.path.join(data_folder_path,'profiles_df.xlsx')
@@ -623,7 +697,7 @@ rolling_window=round(0.03*len(profiles_df)) # int, 0=no rolling, else the number
 
 plt.figure()
 score_series=profiles_df[score_column_name]
-score_series.index=profiles_df['timestamp']
+score_series.index=profiles_df['scraped time']
 score_rolling_mean=score_series.rolling(rolling_window).mean()
 if rolling_window<=0:
     score_series.plot()
