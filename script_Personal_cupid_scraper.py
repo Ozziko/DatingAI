@@ -594,7 +594,8 @@ if script_mode=='validating scores':
         logger.info('reached row 0 -> re-execute to restart re-scoring on a new auto-created re-score coloumn in df')
             
     # user scoring consistency analysis
-    score_diff=profiles_df[score_column_name]-profiles_df[re_score_col]
+    score_diff=profiles_df[score_column_name][profiles_df[re_score_col].apply(lambda x:isinstance(x,float))]-\
+        profiles_df[re_score_col][profiles_df[re_score_col].apply(lambda x:isinstance(x,float))]
     score_diff.dropna(inplace=True)
     score_diff_MSE=(score_diff**2).mean()
     logger.warning("error(original score,'%s') contains %d values, sqrt(MSE): %.1f"%(re_score_col,len(score_diff),score_diff_MSE**0.5))
@@ -602,6 +603,7 @@ if script_mode=='validating scores':
 #%% auto-pilot by user scores
 max_failed_attempts=3
 page_loading_timeout=5
+max_viewed_profiles=1000
 # end of inputs ---------------------------------------------------------------
 
 if script_mode=='auto-pilot by user scores':
@@ -610,14 +612,13 @@ if script_mode=='auto-pilot by user scores':
     
     failed_attempts=0
     i_row=len(profiles_df)-1
+    viewed_profiles=0
     # looping
-    while i_row>0:
+    while i_row>0 and viewed_profiles<max_viewed_profiles:
         profile_row=profiles_df.iloc[i_row]
         score=profile_row[score_column_name]
         if score>=min_score_to_auto_like and profile_row[auto_like_time_col]==None:
             profiles_df[auto_like_time_col].iat[i_row]=pd.Timestamp.now()
-            profiles_df.to_pickle(profiles_df_path)
-            logger.info("'%s' successfully updated"%profiles_df_path)
             
             profile_id=profile_row['profile id']
             URL='https://www.okcupid.com/profile/%s'%(profile_id)
@@ -630,6 +631,7 @@ if script_mode=='auto-pilot by user scores':
                 profiles_df.to_pickle(profiles_df_path)
                 logger.info("'%s' successfully updated"%profiles_df_path)
                 i_row-=1
+                viewed_profiles+=1
                 continue
             except:
                 pass
@@ -657,6 +659,7 @@ if script_mode=='auto-pilot by user scores':
                 failed_attempts=0
                 profiles_df.to_pickle(profiles_df_path)
                 logger.info("'%s' successfully updated"%profiles_df_path)
+                viewed_profiles+=1
             except:
                 failed_attempts+=1
                 if failed_attempts==max_failed_attempts:
@@ -665,6 +668,8 @@ if script_mode=='auto-pilot by user scores':
         i_row-=1
     if i_row==0:
         logger.warning('reached row 0 -> in order to continue auto-liking, set a new auto_like_time_col')
+    if viewed_profiles==max_viewed_profiles:
+        logger.warning('reached max_iterations -> in order to continue, re-execute')
 
 #%% exporting to excel for easy user review
 profiles_excel_path=os.path.join(data_folder_path,'profiles_df.xlsx')
