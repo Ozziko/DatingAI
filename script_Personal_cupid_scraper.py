@@ -70,11 +70,11 @@ data_folder_path='D:\My Documents\Dropbox\Python\DatingAI personal data'
 images_folder_path='D:\AI Data\DatingAI\Data\Images'
 chromedriver_path=r'C:\Program Files (x86)\ChromeDriver\chromedriver.exe'
 score_levels=5
+min_score_to_like=3 # both in scraping and auto-pilot, liking profiles only with score>=min_score_to_like
 
 #script_mode='scraping' # scraping and collecting new data
-#script_mode='validating scores' # navigating to each scraped profile to re-score - to validate and measure user scoring consistency
-script_mode='auto-pilot by user scores' # auto-liking all scraped profiles by user scores given (>=min_score_to_auto_like)
-min_score_to_auto_like=4
+script_mode='validating scores' # navigating to each scraped profile to re-score - to validate and measure user scoring consistency
+#script_mode='auto-pilot by user scores' # auto-liking all scraped profiles by user scores given (>=min_score_to_like)
 auto_like_time_col='auto-like time on 23/01 profile'
 
 account_events={'date format':'%d/%m/%Y',
@@ -172,17 +172,15 @@ def extended_profile_review(profile_index,df,images_folder_path,
     """
     assert images_per_row>0, 'images_per_row must be strictly positive'
     plt.figure()
-    profile_series=df.iloc[profile_index,:]
+    profile_series=df.iloc[profile_index]
     profile_id=profile_series['profile id']
     profile_name=profile_series['name']
     # finding score column (column name in the format of 'score (levels=%d)'%score_levels)
     score_column_name=None
     for column in profiles_df.columns:
-        if 'score' in column:
+        if 'score (levels=' in column:
             score_column_name=column
             break
-    if score_column_name==None:
-        raise RuntimeError("no existing column name in profiles_df contains 'score'!")
     profile_score=profile_series[score_column_name]
     
     profile_age=profile_series['age']
@@ -240,13 +238,14 @@ if ('profiles_df' not in locals()) or reading_decision=='n':
 existing_columns=profiles_df.columns
 existing_score_column_name=None
 for column in existing_columns:
-    if 'score' in column:
+    if 'score (levels=' in column:
         existing_score_column_name=column
         break
 if existing_score_column_name==None:
     raise RuntimeError("no existing column in profiles_df contains 'score', data is corrupted!")
 try:
-    existing_score_levels=int(re.search(r'[0-9]',existing_score_column_name).group())
+#    existing_score_levels=int(re.search(r'[0-9]',existing_score_column_name).group())
+    existing_score_levels=int(existing_score_column_name[14:-1])
 except:
     raise RuntimeError("%s exists, but could not extract its score levels from the first column (should be named 'score (levels=%%d))'%%score_levels), rename or delete the file and re-execute to build a new profiles_df"%profiles_df_path)
 if existing_score_levels!=score_levels:
@@ -284,11 +283,12 @@ if ('driver' not in locals()) or ('driver' in locals() and selenium_decision=='n
     driver=create_selenium_chromedriver(chromedriver_path)
     driver.get('https://www.okcupid.com/login')
     if input('only if you have already logged in, hit enter to continue')=='':
-        logger.info('navigating to DoubleTake to start scoring and scraping!')
-    driver.get('https://www.okcupid.com/doubletake')
+        pass
 
 #%% scraping OKCupid DoubleTake sequentially (looping)
 if script_mode=='scraping':
+    logger.info('navigating to DoubleTake to start scoring and scraping!')
+    driver.get('https://www.okcupid.com/doubletake')
     while 1:
         # static scraping
         logger.info('starting static scraping')
@@ -478,12 +478,12 @@ if script_mode=='scraping':
         
         # Like/Pass the profile according to given user score to pass decision to OK Cupid, and continue scraping
         html=driver.find_element_by_tag_name('html')
-        if score>0:
-            msg='score <%d> was given -> Liked (NUMPAD2 hit). %d profiles scraped!'%(score,len(profiles_df))
+        if score>=min_score_to_like:
+            msg='score %d >= min_score_to_like was given -> Liked (NUMPAD2 hit). %d profiles scraped!'%(score,len(profiles_df))
     #        driver.find_element_by_xpath('//*[@id="quickmatch-wrapper"]/div/div/span/div/div[2]/div/div[2]/span/div/div/div/div[1]/div[2]/button[2]').click()
             html.send_keys(Keys.NUMPAD2)
         else:
-            msg='score <%d> was given -> Passed (NUMPAD1 hit). %d profiles scraped!'%(score,len(profiles_df))  
+            msg='score %d < min_score_to_like was given -> Passed (NUMPAD1 hit). %d profiles scraped!'%(score,len(profiles_df))  
     #        driver.find_element_by_xpath('//*[@id="quickmatch-wrapper"]/div/div/span/div/div[2]/div/div[2]/span/div/div/div/div[1]/div[2]/button[1]').click()
             html.send_keys(Keys.NUMPAD1)
         
@@ -513,12 +513,13 @@ if script_mode=='validating scores':
             profiles_df[re_score_col]=None
             profiles_df[re_score_time_col]=None
 
-    i_re_score=len(profiles_df)-1
+#    i_re_score=len(profiles_df)-1
+    i_re_score=0
     # looping
-    while i_re_score>0:
+    while i_re_score<len(profiles_df):
         profile_row=profiles_df.iloc[i_re_score]
         if not profile_row[re_score_time_col]==None:
-            i_re_score-=1
+            i_re_score+=1
             continue
         
         profile_id=profile_row['profile id']
@@ -574,7 +575,7 @@ if script_mode=='validating scores':
                 if break_skip_decision!='skip':
                     profiles_df[re_score_col].iat[i_re_score]='profile not found'
                 # advancing + continue
-                i_re_score-=1
+                i_re_score+=1
                 continue
         else:
             logger.info("profile re-scored with <%d>, original score: <%d>"%(score,profile_row[score_column_name]))
@@ -588,17 +589,18 @@ if script_mode=='validating scores':
         logger.info("'%s' successfully updated"%profiles_df_path)
         
         # advancing
-        i_re_score-=1
+        i_re_score+=1
 
-    if i_re_score==0:
-        logger.info('reached row 0 -> re-execute to restart re-scoring on a new auto-created re-score coloumn in df')
+    if i_re_score==len(profiles_df):
+        logger.info('reached last row -> re-execute to restart re-scoring on a new auto-created re-score coloumn in df')
             
     # user scoring consistency analysis
-    score_diff=profiles_df[score_column_name][profiles_df[re_score_col].apply(lambda x:isinstance(x,float))]-\
-        profiles_df[re_score_col][profiles_df[re_score_col].apply(lambda x:isinstance(x,float))]
+    temp_df=profiles_df[~profiles_df[re_score_col].isnull()]
+    score_diff=temp_df[score_column_name][temp_df[re_score_col].apply(lambda x:isinstance(x,float))]-\
+        temp_df[re_score_col][temp_df[re_score_col].apply(lambda x:isinstance(x,float))]
     score_diff.dropna(inplace=True)
     score_diff_MSE=(score_diff**2).mean()
-    logger.warning("error(original score,'%s') contains %d values, sqrt(MSE): %.1f"%(re_score_col,len(score_diff),score_diff_MSE**0.5))
+    logger.info("error(original score,'%s') contains %d values, sqrt(MSE): %.1f"%(re_score_col,len(score_diff),score_diff_MSE**0.5))
 
 #%% auto-pilot by user scores
 max_failed_attempts=3
@@ -617,7 +619,7 @@ if script_mode=='auto-pilot by user scores':
     while i_row>0 and viewed_profiles<max_viewed_profiles:
         profile_row=profiles_df.iloc[i_row]
         score=profile_row[score_column_name]
-        if score>=min_score_to_auto_like and profile_row[auto_like_time_col]==None:
+        if score>=min_score_to_like and profile_row[auto_like_time_col]==None:
             profiles_df[auto_like_time_col].iat[i_row]=pd.Timestamp.now()
             
             profile_id=profile_row['profile id']
