@@ -66,14 +66,14 @@ Requirements:
 """
 
 #%% parameters
-data_folder_path='D:\My Documents\Dropbox\Python\DatingAI personal data'
+data_folder_path='D:\My Documents\Dropbox\Python\DatingAI PRIVATE'
 images_folder_path='D:\AI Data\DatingAI\Data\Images'
 chromedriver_path=r'C:\Program Files (x86)\ChromeDriver\chromedriver.exe'
 score_levels=5
-min_score_to_like=3 # both in scraping and auto-pilot, liking profiles only with score>=min_score_to_like
+min_score_to_like=0 # both in scraping and auto-pilot, liking profiles only with score>=min_score_to_like
 
-#script_mode='scraping' # scraping and collecting new data
-script_mode='validating scores' # navigating to each scraped profile to re-score - to validate and measure user scoring consistency
+script_mode='scraping' # scraping and collecting new data
+#script_mode='validating scores' # navigating to each scraped profile to re-score - to validate and measure user scoring consistency
 #script_mode='auto-pilot by user scores' # auto-liking all scraped profiles by user scores given (>=min_score_to_like)
 auto_like_time_col='auto-like time on 23/01 profile'
 
@@ -86,7 +86,8 @@ account_events={'date format':'%d/%m/%Y',
                         ('re-opened free account','02/12/2019'),
                         ('re-opened free account','09/12/2019'),
                         ('re-opened free account','30/12/2019'),
-                        ('re-opened free account','23/01/2019'),
+                        ('re-opened free account','23/01/2020'),
+                        ('re-opened free account','26/02/2020'),
                         ]}
 
 # warning if no-go's appear in profile; real-time check is always on, to disable just empty lists
@@ -96,6 +97,7 @@ user_no_go_extended_detils=[', Smokes cigarettes',', Smokes marijuana', # the co
 #post_scraping_no_go_df_check=True # warning for profiles with positive score and no-go's in the entire df, after scraping completes
 post_scraping_no_go_df_check=False
 
+page_loading_timeout=5
 
 #%% imports
 import logging
@@ -252,6 +254,13 @@ if existing_score_levels!=score_levels:
     raise RuntimeError('%s exists with score_levels=%d, current input is score_levels=%d -> adjust score levels OR manually rename or delete the existing file -> re-execute to build a new profiles_df'%(
             profiles_df_path,existing_score_levels,score_levels))
 
+# re-formatting if needed
+profiles_df=profiles_df[['profile id','scraped time','name','age','location',
+            'basic details','extended details','essay dict',
+            'score (levels=5)','OKCupid match %','image filenames',
+            're-score_0', 're-score_0 time','auto-like time on 23/01 profile']]
+
+
 #%% initializing selenium
 if not os.path.exists(images_folder_path):
     create_folder_decision=input('images folder does not exist in supplied path (%s), create it there automatically now or abort? [y]/n '%images_folder_path)
@@ -292,6 +301,8 @@ if script_mode=='scraping':
     while 1:
         # static scraping
         logger.info('starting static scraping')
+        WebDriverWait(driver,page_loading_timeout).until(
+                    EC.presence_of_element_located((By.XPATH,'//*[@id="quickmatch-wrapper"]/div/div/span/div/div[2]/div/div[2]/span/div/div/div')))
         soup=BeautifulSoup(driver.page_source,'lxml')
         timestamp=pd.Timestamp.now()
         profile_id=score=name=age=location=match_percents=essay_dict=\
@@ -301,7 +312,7 @@ if script_mode=='scraping':
         
         # getting soup and profile id
         try:
-            soup_card=soup.find('div',class_='cardsummary')
+            soup_card=soup.find('div',class_='qmcard-contents')
             profile_URL=soup_card.find('a')['href'] # something like https://www.okcupid.com/profile/5605047242975505858?cf=quickmatch, or https://www.okcupid.com/profile/Dor_La?cf=quickmatch
             profile_id=re.search(r'(?<=profile/).*?(?=\?)',profile_URL).group()
     
@@ -475,6 +486,7 @@ if script_mode=='scraping':
                 # saving profiles_df
                 profiles_df.to_pickle(profiles_df_path)
                 logger.info("'%s' successfully updated"%profiles_df_path)
+                
         
         # Like/Pass the profile according to given user score to pass decision to OK Cupid, and continue scraping
         html=driver.find_element_by_tag_name('html')
@@ -488,6 +500,13 @@ if script_mode=='scraping':
             html.send_keys(Keys.NUMPAD1)
         
         logger.info(msg)
+        
+        try:
+            driver.find_element_by_class_name('dynamic-likes-cap-modal') # if this exists - out of daily likes
+            logger.info("out of daily likes -> break")
+            break
+        except:
+            pass
 
 #%% validating scores
 if script_mode=='validating scores':
@@ -604,7 +623,6 @@ if script_mode=='validating scores':
 
 #%% auto-pilot by user scores
 max_failed_attempts=3
-page_loading_timeout=5
 max_viewed_profiles=1000
 # end of inputs ---------------------------------------------------------------
 
