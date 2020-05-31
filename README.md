@@ -1,7 +1,7 @@
 # DatingAI
 **(last update: 2020/05/31)**
 
-* *Around the beginning of 2019* I started **DatingAI** as a personal research project: learning personal taste in dating sites (by DL, mainly computer vision & NLP), developing a personal dating agent.
+* *Around the beginning of 2019* I started **DatingAI** as a personal research project: learning personal taste in dating sites (by deep learning, mainly computer vision & NLP), developing a personal dating agent.
 
 * *Around the end of 2019* I also started **DatingAI community project**: developing an AI system to assist in *finding relationships*, together with the community I’ve built, which is the opposite of online dating apps that make a fortune from *keeping users single* to watch ads or pay subscriptions as long as possible. You can read more [here](https://ozzisphere.wordpress.com/2019/09/29/datingai-the-community-matchmaking-phase/). We are working on it in [DatingAI Facebook group (in Hebrew)](https://www.facebook.com/groups/DatingAI/).
 
@@ -24,8 +24,9 @@ Oz Livneh
   <img src="Images/DatingAI_logo.jpg">
 </p>
 
----
-## Intro
+# Intro
+As written above, **DatingAI** is my personal research project: learning personal taste in dating sites, developing a personal dating agent.
+
 Since OK Cupid is a top global dating site and offers a web interface that sequentially presents profiles to the logged user when liking/passing them (DoubleTake), I built a personal scraper that allows any user to locally save all data that is presented:
 <p align="center">
   <img src="Images/Data_example.png">
