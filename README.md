@@ -8,7 +8,7 @@
 **This repo only belongs to my DatingAI personal research project, not the community project!**
 
 ## About me
-I am originally a physicist – B.Sc. from the Technion, M.Sc. from the Weizmann Institute. In 2018 I decided to stop a Ph.D. in astrophysics in order to pursue my new passion – researching AI in the hi-tech! I have broad research and development experience in data science and machine learning (classic & deep), especially in the fields of NLP, computer vision & time series.
+I am originally a physicist – B.Sc. from the Technion, M.Sc. from the Weizmann Institute. In 2018 I decided to stop a Ph.D. in astrophysics in order to pursue my new passion – researching AI in the hi-tech! **I have broad research and development experience in data science and machine learning (classic & deep), especially in the fields of NLP, computer vision & time series.**
 
 I am an excellent autodidact, very curious, **I deeply like learning, researching and solving challenges.**
 
