@@ -1,33 +1,40 @@
 # DatingAI
-**(last update: 2019/12/06)**
+**(last update: 2020/05/31)**
 
-* *Around the beginning of 2019* I started DatingAI as a personal research project, to develop and research AI to learn personal taste in dating sites, and function as a personal dating bot. You can read more [here](https://ozzisphere.wordpress.com/2019/02/02/dating-ai-project/).
+* *Around the beginning of 2019* I started **DatingAI** as a personal research project: learning personal taste in dating sites (by deep learning, mainly computer vision & NLP), developing a personal dating agent.
 
-* *Around the end of 2019* I also started DatingAI community project, to build a **honest** AI dating system to help as many users as possible in making matches that lead to **meaningful** relationships, **the opposite** of current online dating sites/apps. You can read more [here](https://ozzisphere.wordpress.com/2019/09/29/datingai-the-community-matchmaking-phase/). We are working on it in [DatingAI Facebook group](https://www.facebook.com/groups/DatingAI/) (Hebrew!).
+* *Around the end of 2019* I also started **DatingAI community project**: developing an AI system to assist in *finding relationships*, together with the community I’ve built, which is the opposite of online dating apps that make a fortune from *keeping users single* to watch ads or pay subscriptions as long as possible. You can read more [here](https://ozzisphere.wordpress.com/2019/09/29/datingai-the-community-matchmaking-phase/). We are working on it in [DatingAI Facebook group (in Hebrew)](https://www.facebook.com/groups/DatingAI/).
 
-**This repo presents only my original DatingAI personal research project, not the community project!**
+**This repo only belongs to my DatingAI personal research project, not the community project!**
+
+## About me
+I am originally a physicist – B.Sc. from the Technion, M.Sc. from the Weizmann Institute. In 2018 I decided to stop a Ph.D. in astrophysics in order to pursue my new passion – researching AI in the hi-tech! **I have broad research and development experience in data science and machine learning (classic & deep), especially in the fields of NLP, computer vision & time series.**
+
+I am an excellent autodidact, very curious, **I deeply like learning, researching and solving challenges.**
+
+You can read more in www.linkedin.com/in/oz-livneh.
+
+**Feel free to contact me** - in my LinkedIn or oz.livneh@gmail.com.
+
+Yours,
+
+Oz Livneh
 
 <p align="center">
   <img src="Images/DatingAI_logo.jpg">
 </p>
 
----
-DatingAI started as a personal research project that I created for my interest, challenge and experience, and also to demonstrate my skills (for past job searching), aiming to learn:
-
-1. **Learn personal taste in dating sites:**
-    1. How to predict personal taste (represented by the scores that a user gives to profiles) by neural networks.
-    2. How different profile features - images, numerical/categorical features (age, location...), text - affect the personal taste of a user.
-    3. How to represent personal taste and profile embedding, what clusters exist and how they depend on the scoring scale...
-2. **Develop a personal dating agent** that automatically likes/passes and messages profiles according to the user personal taste learned.
+# Intro
+As written above, **DatingAI** is my personal research project: learning personal taste in dating sites, developing a personal dating agent.
 
 Since OK Cupid is a top global dating site and offers a web interface that sequentially presents profiles to the logged user when liking/passing them (DoubleTake), I built a personal scraper that allows any user to locally save all data that is presented:
 <p align="center">
   <img src="Images/Data_example.png">
 </p>
 
-The challenge is to develop and integrate learning:
-1. A varying-length sequence of images (for which I developed a **self-attention net**).
-2. A varying-length sequence of weakly-structured optional text sections, in possibly a few intertwined languages, e.g. in Israel – English, Hebrew, Emojis (for which I developed an **attentive character-level bi-LSTM**).
+**The challenge is to develop and integrate learning:**
+1. Profile photos – an arbitrary-length image sequence of a person, possibly with friends, pets...
+2. Profile text – an arbitrary-length sequence of weakly-structured optional text sections, in possibly a few intertwined languages, e.g. in Israel – English, Hebrew, Emojis.
 3. Categorical features (location, habits…) that require sparse/dense embeddings.
 4. Numerical features (age, height…).
 
@@ -61,17 +68,3 @@ The challenge is to develop and integrate learning:
 8. (0%) **Researching the representation of personal taste and profile in embedded spaces, clustering, etc.**
 
 8. (0%) **Developing a personal dating agent:** automatically likes/dislikes profiles and messages them according to learned user taste.
-
-# About me
-I have an M.Sc. in physics from the Weizmann Institute and a B.Sc. in physics from the Technion, and changed field of expertise from a Ph.D. in astrophysics to artificial intelligence. **I am experienced with shallow/deep learning, NLP, computer vision, time series. I keep up-to-date** by constantly reading papers, listening to podcasts, attending conferences and meetups, experimenting. See my personal & community projects below.
-
-I am an excellent autodidact, very curious, **I deeply like learning, researching and solving challenges.**
-
----
-**I would be glad for any comment, question or discussion!**
-
-You can contact me at oz.livneh@gmail.com or find me at www.linkedin.com/in/oz-livneh.
-
-Yours,
-
-Oz Livneh
