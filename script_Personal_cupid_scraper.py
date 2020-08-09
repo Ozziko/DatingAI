@@ -63,6 +63,10 @@ Requirements:
         matches its version (download from http://chromedriver.chromium.org/ and 
         place in a local folder, write its path in chromedriver_path parameter
         below!)
+        
+        
+To do:
+    * find duplicates, merge, extract stats especially about my consistency
 """
 
 #%% parameters
@@ -88,16 +92,18 @@ account_events={'date format':'%d/%m/%Y',
                         ('re-opened free account','30/12/2019'),
                         ('re-opened free account','23/01/2020'),
                         ('re-opened free account','26/02/2020'),
+                        ('revived free account','16/06/2020'),
+                        ('re-opened free account','09/08/2020'),
                         ]}
 
 # warning if no-go's appear in profile; real-time check is always on, to disable just empty lists
 user_no_go_basic_detils=['Married','Divorced','Has kids']
-user_no_go_extended_detils=[', Smokes cigarettes',', Smokes marijuana', # the comma to avoid recgonizing 'smokes marijuana' in 'never smokes marijuana'
-                            ', Does drugs']
+user_no_go_lifestyle_detils=['Smokes cigarettes','Smokes marijuana', # the comma to avoid recgonizing 'smokes marijuana' in 'never smokes marijuana'
+                            'Does drugs']
 #post_scraping_no_go_df_check=True # warning for profiles with positive score and no-go's in the entire df, after scraping completes
 post_scraping_no_go_df_check=False
 
-page_loading_timeout=5
+page_loading_timeout_sec=10 
 
 #%% imports
 import logging
@@ -123,7 +129,7 @@ import urllib.request
 from selenium.webdriver.support.ui import WebDriverWait
 from selenium.webdriver.support import expected_conditions as EC
 from selenium.webdriver.common.by import By
-from selenium.common.exceptions import TimeoutException
+# from selenium.common.exceptions import TimeoutException
 
 #%% definitions
 def create_selenium_chromedriver(chromedriver_path,mode='normal',
@@ -254,13 +260,6 @@ if existing_score_levels!=score_levels:
     raise RuntimeError('%s exists with score_levels=%d, current input is score_levels=%d -> adjust score levels OR manually rename or delete the existing file -> re-execute to build a new profiles_df'%(
             profiles_df_path,existing_score_levels,score_levels))
 
-# re-formatting if needed
-profiles_df=profiles_df[['profile id','scraped time','name','age','location',
-            'basic details','extended details','essay dict',
-            'score (levels=5)','OKCupid match %','image filenames',
-            're-score_0', 're-score_0 time','auto-like time on 23/01 profile']]
-
-
 #%% initializing selenium
 if not os.path.exists(images_folder_path):
     create_folder_decision=input('images folder does not exist in supplied path (%s), create it there automatically now or abort? [y]/n '%images_folder_path)
@@ -301,12 +300,13 @@ if script_mode=='scraping':
     while 1:
         # static scraping
         logger.info('starting static scraping')
-        WebDriverWait(driver,page_loading_timeout).until(
-                    EC.presence_of_element_located((By.XPATH,'//*[@id="quickmatch-wrapper"]/div/div/span/div/div[2]/div/div[2]/span/div/div/div')))
+        WebDriverWait(driver,page_loading_timeout_sec).until(
+                    EC.presence_of_element_located((By.XPATH, # waiting for the like button to load
+                        '//*[@id="main_content"]/div[3]/div/div[1]/div/div/div/div/div[1]/div[2]/button[2]')))
         soup=BeautifulSoup(driver.page_source,'lxml')
         timestamp=pd.Timestamp.now()
         profile_id=score=name=age=location=match_percents=essay_dict=\
-            basic_profile_details=extended_profile_details=None
+            basic_profile_details=extended_profile_details=profile_details_dict=None
         skipping_decision='n'
         identical_skipping=False
         
@@ -330,17 +330,17 @@ if script_mode=='scraping':
         else:
             # scraping header card details (name,age,location,...)
             try:
-                name=soup_card.find('div',class_='cardsummary-item cardsummary-realname').text
+                name=soup_card.find('span',class_='cardsummary-item cardsummary-realname').text
             except:
                 logger.warning('could not scrape name')
             try:
-                age=int(soup_card.find('div',class_='cardsummary-item cardsummary-age').text)
+                age=int(soup_card.find('span',class_='cardsummary-item cardsummary-age').text)
             except:
                 logger.warning('could not scrape age')
             try:
-                location=soup_card.find('div',class_='cardsummary-item cardsummary-location').text
+                location=soup_card.find('span',class_='cardsummary-item cardsummary-location').text
             except:
-                logger.info('could not scrape location')
+                logger.warning('could not scrape location')
             try:
                 match_text=soup_card.find('span',class_='cardsummary-match-pct').text
                 match_percents=int(match_text[:match_text.find('%')])
@@ -349,11 +349,21 @@ if script_mode=='scraping':
         
             try: # scraping profile details (orientation, languages,...)
                 soup_profile_details=soup.find('div',class_='quickmatch-profiledetails matchprofile-details')
-                soup_profile_details=soup_profile_details.find_all('div',class_='matchprofile-details-text')
-                basic_profile_details=soup_profile_details[0].text
-                if len(soup_profile_details)>1: extended_profile_details=soup_profile_details[1].text
+                # soup_profile_details=soup_profile_details.find_all('div',class_='matchprofile-details-text')
+                # basic_profile_details=soup_profile_details[0].text
+                # if len(soup_profile_details)>1: extended_profile_details=soup_profile_details[1].text
+                
+                soup_profile_details_sections=soup_profile_details.find_all('div')
+                soup_profile_details_text_sections=soup_profile_details.find_all('div',class_='matchprofile-details-text')
+                
+                profile_details_dict={}
+                for i_sect,section in enumerate(soup_profile_details_text_sections):
+                    section_class=soup_profile_details_sections[i_sect*2]['class'][-1]
+                    section_name=section_class.split('--')[-1]
+                    section_text=section.text
+                    profile_details_dict[section_name]=section_text
             except:
-                logger.debug('could not scrape profile details')
+                logger.warning('could not scrape profile details')
             try: # scraping all free text boxes ("essay")
                 soup_essay=soup.find('div',class_='qmessays')
                 soup_free_text_boxes=soup_essay.find_all('div',class_='qmessays-essay')
@@ -411,17 +421,30 @@ if script_mode=='scraping':
             if identical_skipping==False:
                 # checking user no-go's
                 no_go_profile=False
-                if isinstance(basic_profile_details,str):
+                # if isinstance(basic_profile_details,str):
+                #     for no_go in user_no_go_basic_detils:
+                #         if no_go in basic_profile_details:
+                #             logger.warning("detected user basic details no-go in profile: '%s'"%(no_go))
+                #             no_go_profile=True
+                
+                # if isinstance(extended_profile_details,str):
+                #     for no_go in user_no_go_extended_detils:
+                #         if no_go in extended_profile_details:
+                #             logger.warning("detected user extended details no-go in profile: '%s'"%(no_go))
+                #             no_go_profile=True
+                if profile_details_dict!=None and 'basics' in profile_details_dict:
                     for no_go in user_no_go_basic_detils:
-                        if no_go in basic_profile_details:
+                        if no_go in profile_details_dict['basics']:
                             logger.warning("detected user basic details no-go in profile: '%s'"%(no_go))
                             no_go_profile=True
                 
-                if isinstance(extended_profile_details,str):
-                    for no_go in user_no_go_extended_detils:
-                        if no_go in extended_profile_details:
-                            logger.warning("detected user extended details no-go in profile: '%s'"%(no_go))
+                if profile_details_dict!=None and 'lifestyle' in profile_details_dict:
+                    for no_go in user_no_go_lifestyle_detils:
+                        if no_go in profile_details_dict['lifestyle']:
+                            logger.warning("detected user basic details no-go in profile: '%s'"%(no_go))
                             no_go_profile=True
+                
+                
                 
                 # acquiring score from the user
                 if name==None:
@@ -462,12 +485,13 @@ if script_mode=='scraping':
                             'location':location,
                             'OKCupid match %':match_percents,
                             'essay dict':essay_dict,
-                            'basic details':basic_profile_details,
-                            'extended details':extended_profile_details,
+                            # 'basic details':basic_profile_details,
+                            # 'extended details':extended_profile_details,
+                            'profile details dict':profile_details_dict,
                             'image filenames':image_filenames,
                             'scraped time':timestamp}},
                         orient='index')
-                    profiles_df=pd.concat([profiles_df,current_df])
+                    profiles_df=pd.concat([profiles_df,current_df],sort=False)
                 else:
                    profiles_df=pd.DataFrame.from_dict({0:{
                             'profile id':profile_id,
@@ -477,11 +501,20 @@ if script_mode=='scraping':
                             'location':location,
                             'OKCupid match %':match_percents,
                             'essay dict':essay_dict,
-                            'basic details':basic_profile_details,
-                            'extended details':extended_profile_details,
+                            # 'basic details':basic_profile_details,
+                            # 'extended details':extended_profile_details,
+                            'profile details dict':profile_details_dict,
                             'image filenames':image_filenames,
                             'scraped time':timestamp}},
                         orient='index')
+                
+                # re-organized cols that were disorganized after merging
+                cols=['profile id','scraped time',score_column_name,'name','age','location',
+                            'basic details','extended details','profile details dict','essay dict',
+                            'OKCupid match %','image filenames']
+                cols_remainder=list(set(profiles_df.columns)-set(cols))
+                cols.extend(cols_remainder)
+                profiles_df=profiles_df[cols]
                 
                 # saving profiles_df
                 profiles_df.to_pickle(profiles_df_path)
@@ -658,7 +691,7 @@ if script_mode=='auto-pilot by user scores':
             
             try:
                 # waiting by xpath since it's also the button for 'message' (if profile already liked)
-                WebDriverWait(driver,page_loading_timeout).until(
+                WebDriverWait(driver,page_loading_timeout_sec).until(
                     EC.presence_of_element_located((By.XPATH,'/html/body/main/div/div/div[2]/div/div/div[3]/span/div/button[2]')))
                 button=driver.find_element_by_xpath('/html/body/main/div/div/div[2]/div/div/div[3]/span/div/button[2]')
                 try:
