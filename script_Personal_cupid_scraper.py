@@ -79,20 +79,11 @@ min_score_to_like=0 # both in scraping and auto-pilot, liking profiles only with
 script_mode='scraping' # scraping and collecting new data
 #script_mode='validating scores' # navigating to each scraped profile to re-score - to validate and measure user scoring consistency
 #script_mode='auto-pilot by user scores' # auto-liking all scraped profiles by user scores given (>=min_score_to_like)
-auto_like_time_col='auto-like time on 23/01 profile'
+
+auto_like_time_col='auto-like time on 23/01 profile' # this column should be created manually, if unclear - just leave it as is
 
 account_events={'date format':'%d/%m/%Y',
                 'name-date tuples':[
-                        ('re-opened free account','19/07/2019'),
-                        ('started subscription','11/09/2019'),
-                        ('finished subscription','11/10/2019'),
-                        ('re-opened free account','22/11/2019'),
-                        ('re-opened free account','02/12/2019'),
-                        ('re-opened free account','09/12/2019'),
-                        ('re-opened free account','30/12/2019'),
-                        ('re-opened free account','23/01/2020'),
-                        ('re-opened free account','26/02/2020'),
-                        ('revived free account','16/06/2020'),
                         ('re-opened free account','09/08/2020'),
                         ]}
 
@@ -242,23 +233,24 @@ if ('profiles_df' not in locals()) or reading_decision=='n':
         if start_new_profiles_df_decision!='y':
             raise RuntimeError('aborted by user decision')
 
-# checking if the existing profiles_df was built with the same score levels as current score_levels
-existing_columns=profiles_df.columns
-existing_score_column_name=None
-for column in existing_columns:
-    if 'score (levels=' in column:
-        existing_score_column_name=column
-        break
-if existing_score_column_name==None:
-    raise RuntimeError("no existing column in profiles_df contains 'score', data is corrupted!")
-try:
-#    existing_score_levels=int(re.search(r'[0-9]',existing_score_column_name).group())
-    existing_score_levels=int(existing_score_column_name[14:-1])
-except:
-    raise RuntimeError("%s exists, but could not extract its score levels from the first column (should be named 'score (levels=%%d))'%%score_levels), rename or delete the file and re-execute to build a new profiles_df"%profiles_df_path)
-if existing_score_levels!=score_levels:
-    raise RuntimeError('%s exists with score_levels=%d, current input is score_levels=%d -> adjust score levels OR manually rename or delete the existing file -> re-execute to build a new profiles_df'%(
-            profiles_df_path,existing_score_levels,score_levels))
+if 'profiles_df' in locals():
+    # checking if the existing profiles_df was built with the same score levels as current score_levels
+    existing_columns=profiles_df.columns
+    existing_score_column_name=None
+    for column in existing_columns:
+        if 'score (levels=' in column:
+            existing_score_column_name=column
+            break
+    if existing_score_column_name==None:
+        raise RuntimeError("no existing column in profiles_df contains 'score', data is corrupted!")
+    try:
+    #    existing_score_levels=int(re.search(r'[0-9]',existing_score_column_name).group())
+        existing_score_levels=int(existing_score_column_name[14:-1])
+    except:
+        raise RuntimeError("%s exists, but could not extract its score levels from the first column (should be named 'score (levels=%%d))'%%score_levels), rename or delete the file and re-execute to build a new profiles_df"%profiles_df_path)
+    if existing_score_levels!=score_levels:
+        raise RuntimeError('%s exists with score_levels=%d, current input is score_levels=%d -> adjust score levels OR manually rename or delete the existing file -> re-execute to build a new profiles_df'%(
+                profiles_df_path,existing_score_levels,score_levels))
 
 #%% initializing selenium
 if not os.path.exists(images_folder_path):
